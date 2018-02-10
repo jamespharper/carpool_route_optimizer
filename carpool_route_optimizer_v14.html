@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+	<head>
+    		<title>Carpool Route Optimizer v0.14</title>
+    		<script src="https://maps.googleapis.com/maps/api/js?sensor=false"></script>
+    		<style>
+			html { height: 100% }
+			body { height: 100%; margin: 0; padding: 0 }
+			#map { height: 100% }
+    	</style>
+		<script>
+			var directionDisplay;
+	      	var directionsService = new google.maps.DirectionsService();
+			var map;
+			var combos = [];  //combos: Global array which holds the list of permutations of riders (used in function permute)
+			var usedChars = [];  //usedChars: Global utility array which holds a list of "currently-in-use" characters (used in function permute)
+
+			function initialize() {
+				directionsDisplay = new google.maps.DirectionsRenderer();
+				var opts = {
+					center: new google.maps.LatLng(32.8350,-116.7656),  //Alpine, CA
+  		        	zoom: 10,
+  		        	mapTypeId: google.maps.MapTypeId.ROADMAP
+				};
+				map = new google.maps.Map(document.getElementById('map'), opts);
+				directionsDisplay.setMap(map);
+			}
+
+			function calculateDistances() {
+	  	     	var service = new google.maps.DistanceMatrixService();
+				var riders = document.getElementById('riders');
+				var end = document.getElementById('end').value;	
+				
+				//Create arrays of selected riders and destinations
+				var num = 0;
+				var selected_riders = [];
+				var destinations = [];
+				console.log(["riders is ",riders]);
+				console.log(["length of riders is ",riders.length]);
+				for (var i = 0; i < riders.length; i++) {
+					if (riders.options[i].selected == true) {
+	  	         		selected_riders[num] = riders.options[i].value;
+						destinations[num]    = riders.options[i].value;
+						num++;
+      					}
+					}
+				destinations[num] = end;
+				console.log(["num is ",num]);
+				console.log(["length of selected_riders is ",selected_riders.length]);
+				console.log(["selected_riders is ",selected_riders]);
+				console.log(["length of destinations is ",destinations.length]);
+				console.log(["destinations is ",destinations]);
+				request = {
+  	          		origins: selected_riders,
+  	          		destinations: destinations,
+  	          		travelMode: google.maps.TravelMode.DRIVING,
+  	          		unitSystem: google.maps.UnitSystem.METRIC,
+  	          		avoidHighways: false,
+  	          		avoidTolls: false
+  	        	}
+				console.log(["request is ",request]);
+				
+				//Get distance matrix from Google Maps and process results in callback function
+				service.getDistanceMatrix(request, callback);
+			
+   		   	}
+
+			function callback(response, status) {		//Process results of distance matrix
+				if (status != google.maps.DistanceMatrixStatus.OK) {
+  	        		alert('Error was: ' + status);
+	  	   			}
+				else {
+					var origins = response.originAddresses;
+					console.log(['origins is ',origins]);
+  	        		var destinations = response.destinationAddresses;
+  	        		var outputPanel = document.getElementById('output_panel');
+  	    			outputPanel.innerHTML = '';
+					
+					//Select list of riders based on number of riders
+					var combos = new Object();
+					var list
+					switch (origins.length) {
+						case 2: list = '012'; break;
+						case 3: list = '0123'; break;
+						case 4: list = '01234'; break;
+						case 5: list = '012345'; break;
+						case 6: list = '0123456'; break;
+						case 7: list = '01234567'; break;
+						case 8: list = '012345678'; break;
+						case 9: list = '0123456789'; break;
+						default: alert('Please select between 2 and 9 riders.'); break;
+					}
+					console.log('list is',list);
+					console.log('list is type',typeof list);
+					
+					//Calculate permutations of routes given list of riders
+					var run = false;
+					if      ( list.length == 0 )  { }  //Can't permute zero drivers
+					else if ( list.length > 5 )   { run = confirm("That is a lot of riders! This may take a while.\nAre you sure you want to continue?");}
+					else if ( list.length >= 11 ) { alert("That is way too many riders!\nPlease select between 2 and 9 riders.");}
+					else 							   run = true;
+					if(run) {
+						combos = [];
+						permute(list);
+					}
+					console.log('combos is ',combos);
+					console.log('length of combos is ',combos.length);
+					
+					//Remove permutations of routes that do not end at destination
+					var combos_temp = [];
+					var j = 0;
+					for (var i = 0; i < combos.length; i++ ) {
+						if ( combos[i].charAt(origins.length) != origins.length ) {
+							combos[i] = 0;
+							combos_temp[j] = combos[i];
+							j++;
+						}
+					}
+					console.log('combos_temp is ',combos_temp);
+					console.log('combos is ',combos);
+					console.log('length of combos is ',combos.length);
+					
+					//combos = [];
+					//combos = combos_temp;
+					
+					//Parse distance and duration data
+					distance01 = response.rows[0].elements[1].distance.value/1609.34;  duration01 = response.rows[0].elements[1].duration.value/60;  //miles, minutes
+					distance02 = response.rows[0].elements[2].distance.value/1609.34;  duration02 = response.rows[0].elements[2].duration.value/60;  //miles, minutes
+					distance03 = response.rows[0].elements[3].distance.value/1609.34;  duration03 = response.rows[0].elements[3].duration.value/60;  //miles, minutes
+					distance12 = response.rows[1].elements[2].distance.value/1609.34;  duration12 = response.rows[1].elements[2].duration.value/60;  //miles, minutes
+					distance13 = response.rows[1].elements[3].distance.value/1609.34;  duration13 = response.rows[1].elements[3].duration.value/60;  //miles, minutes
+					distance23 = response.rows[2].elements[3].distance.value/1609.34;  duration23 = response.rows[2].elements[3].duration.value/60;  //miles, minutes
+					
+					//Calcuate distances and durations of all combinations of drivers and riders
+					var distance = [];
+					var duration = [];
+					distance[0] = distance01 + distance12 + distance23;  duration[0] = duration01 + duration12 + duration23;  //0123
+					distance[1] = distance02 + distance12 + distance13;  duration[1] = duration02 + duration12 + duration13;  //0213
+					distance[2] = distance01 + distance02 + distance23;  duration[2] = duration01 + duration02 + duration23;  //1023
+					distance[3] = distance12 + distance02 + distance03;  duration[3] = duration12 + duration02 + duration03;  //1203
+					distance[4] = distance02 + distance01 + distance13;  duration[4] = duration02 + duration01 + duration13;  //2013
+					distance[5] = distance12 + distance01 + distance03;  duration[5] = duration12 + duration01 + duration03;  //2103
+					console.log(distance);
+					console.log(duration);
+					
+					//Display enumeration of riders
+					for (var i = 0; i < origins.length; i++) {
+						outputPanel.innerHTML += 'Rider ' + i + ': ' + origins[i] + '<br>';
+					}
+					
+					//Display distances and durations of all combinations of drivers and riders
+					outputPanel.innerHTML += 'Driver  Rider  Rider  Destination  Miles  Minutes<br>';
+					outputPanel.innerHTML += '___0______1______2______3______' + distance[0].toFixed(1) + '______' + duration[0].toFixed(1) + '<br>';
+					outputPanel.innerHTML += '___0______2______1______3______' + distance[1].toFixed(1) + '______' + duration[1].toFixed(1) + '<br>';
+					outputPanel.innerHTML += '___1______0______2______3______' + distance[2].toFixed(1) + '______' + duration[2].toFixed(1) + '<br>';
+					outputPanel.innerHTML += '___1______2______0______3______' + distance[3].toFixed(1) + '______' + duration[3].toFixed(1) + '<br>';
+					outputPanel.innerHTML += '___2______0______1______3______' + distance[4].toFixed(1) + '______' + duration[4].toFixed(1) + '<br>';
+					outputPanel.innerHTML += '___2______1______0______3______' + distance[5].toFixed(1) + '______' + duration[5].toFixed(1) + '<br>';
+					
+					//Select shortest route by distance and duration
+					var route_shortest_by_distance = 0;
+					var route_shortest_by_duration = 0;
+					var distance_shortest = 999999999999999;  //miles
+					var duration_shortest = 999999999999999;  //minutes
+					console.log('distance is ',distance);
+					console.log('length of distance is ',distance.length);
+					for (var i = 0; i < distance.length; i++ ) {
+						if ( distance[i] < distance_shortest ) {
+							route_shortest_by_distance = i;
+							distance_shortest = distance[i];
+							console.log('i is ',i);
+							console.log('route_shortest_by_distance is ',route_shortest_by_distance);
+							console.log('distance[i] is ',distance[i]);
+							console.log('distance_shortest is ',distance_shortest);
+						}
+						if ( duration[i] < duration_shortest ) {
+							route_shortest_by_duration = i;
+							duration_shortest = duration[i];
+						}
+					}
+					outputPanel.innerHTML += 'Shortest route by distance is ' + combos[route_shortest_by_distance] + '<br>';
+					outputPanel.innerHTML += 'Shortest route by duration is ' + combos[route_shortest_by_duration] + '<br>';
+					
+					//Request and display shortest route by distance
+					var start = origins[combos[route_shortest_by_distance].charAt(0)];
+  	      			var end = destinations[combos[route_shortest_by_distance].charAt(origins.length)];
+					console.log('length of destinations is ',destinations.length);
+					console.log('end is ',end);
+					var waypts = [];
+					for (var i = 1; i < origins.length; i++) {
+						waypts.push({
+							location: origins[combos[route_shortest_by_distance].charAt(i)],
+							stopover: true
+						});
+					}
+					var request = {
+  	        	  		origin: start,
+  	          			destination: end,
+  	          			waypoints: waypts,
+  	          			optimizeWaypoints: true,
+  	          			travelMode: google.maps.DirectionsTravelMode.DRIVING,
+						provideRouteAlternatives: false
+        			};
+					console.log('request is ',request);
+					directionsService.route(request, function(response, status) {
+  	        			if (status == google.maps.DirectionsStatus.OK) {
+  	          				directionsDisplay.setDirections(response);
+  	          				var route = response.routes[0];
+							var totaldist = 0;
+            				var summaryPanel = document.getElementById('directions_panel');
+            				summaryPanel.innerHTML = '';
+            				// For each route, display summary information.
+            				for (var i = 0; i < route.legs.length; i++) {
+              				var routeSegment = i + 1;
+              				summaryPanel.innerHTML += '<b>Route Segment: ' + routeSegment + '</b><br>';
+              				summaryPanel.innerHTML += route.legs[i].start_address + ' to ';
+              				summaryPanel.innerHTML += route.legs[i].end_address + '<br>';
+              				summaryPanel.innerHTML += route.legs[i].distance.text + '<br><br>';
+								totaldist = totaldist + route.legs[i].distance.value;
+            					}
+							totaldist = totaldist/1609.34;  //Convert from meters to miles
+							summaryPanel.innerHTML += '<b>Total Distance: </b>' + totaldist.toFixed(1) + ' miles<br><br>';
+          					}
+        				});
+
+					//Display best driver in output panel
+					outputPanel.innerHTML += 'If each driver drove separately, they would drive ' + distance_solo.toFixed(1) + ' miles in ' + duration_solo.toFixed(1) + ' minutes<br>';					
+
+					//Calcuate distance and duration if riders drove alone
+					var distance_solo = 0;
+					var duration_solo = 0;
+					for (var i = 0; i < origins.length; i++) {
+						distance_solo = distance_solo + response.rows[i].elements[response.rows[i].elements.length-1].distance.value/1609.34;  //miles
+						duration_solo = duration_solo + response.rows[i].elements[response.rows[i].elements.length-1].duration.value/60;  //minutes
+					}
+					outputPanel.innerHTML += 'If each driver drove separately, they would drive ' + distance_solo.toFixed(1) + ' miles in ' + duration_solo.toFixed(1) + ' minutes<br>';
+					
+					//Display detailed distance matrix information
+					//for (var i = 0; i < origins.length; i++) {
+          			//	for (var j = 0; j < response.rows[i].elements.length; j++) {
+         	     	//			outputPanel.innerHTML += origins[i] + ' to ' + destinations[j] + ': ' + response.rows[i].elements[j].distance.text + ' in ' + response.rows[i].elements[j].duration.text + '<br>';
+            		//	}
+          			//}
+
+					function permute(input) {  //Copyright 2007 Scriptar.com, All Rights Reserved. Author: Scriptar (scriptar@gmail.com)
+						console.log('input is ',input);
+						var i, ch, chars = input.split("");  //Convert input into a char array (one element for each character)
+						for (i = 0; i < chars.length; i++) {
+							console.log('Running permutation');
+							ch = chars.splice(i, 1);  //Get and remove character at index "i" from char array
+							usedChars.push(ch);  //Add removed character to the end of used characters
+							if (chars.length == 0) combos[combos.length] = usedChars.join("");  //When there are no more characters left in char array to add, add used chars to list of permutations
+							permute(chars.join(""));  //Send characters (minus the removed one from above) from char array to be permuted
+							chars.splice(i, 0, ch);  //Add removed character back into char array in original position
+							usedChars.pop();  //Remove the last character used off the end of used characters array
+						}
+						console.log('list inside permute function is ',list);
+					}
+					
+				}
+			}
+		</script>
+	</head>
+	<body onload="initialize()">
+		<div id="map" style="float:left;width:70%;height:100%;"></div>
+		<div id="inputs" style="float:right;width:30%;text-align:left;padding-top:20px">
+			<div style="margin:20px;border-width:2px;">
+		    		<b>Carpool Route Optimizer v0.13</b><br>
+				Written by James Harper<br><br>
+				<b>Riders</b> <br>
+    				<i>(Ctrl-Click for multiple selections)</i> <br>
+		    		<select multiple id="riders">
+		      		<option value="1122 Washington Place, 92103">James Harper</input>
+		      		<option value="1030 Robinson Ave, 92103">Jennifer Fouquier</input>
+		      		<option value="7245 Canyon Breeze Road, 92126">Elise Minda</input>
+		      		<option value="10711 Calston Way, 92126">Nazli Taheri</input>
+					<option value="3009 Union Street #18, 92103">Tony Rolfe</input>
+		    		</select>
+				<br><br>
+		    		<b>Destination:</b>
+		    		<select id="end">
+		      		<option value="Mission Trails Visitor Center, 92119">Mission Trails Visitor Center</option>
+		      		<option value="San Ysidro Border, Bursátil, Tijuana, Mexico">Tijuana</option>
+		      		<option value="Ocean Beach, CA">Ocean Beach</option>
+		      		<option value="4545 La Jolla Village Drive, 92122">UTC</option>
+		    		</select>
+		    		<br><br>
+		      	<p><button type="button" onclick="calculateDistances();">Calculate best driver and route</button></p>
+    			</div>
+    			<div id="output_panel" style="margin:20px;background-color:#FFEE77;"></div>
+		</div>
+	</body>
+</html>
